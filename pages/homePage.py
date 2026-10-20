@@ -10,7 +10,7 @@ class homePage:
 
   def navigate_to_login(self):
     self.sign_in_link.click()
-    
+
   def validateTheVisibilityOfSearchBar(self):
     expect(self.searchBarTxtBox).to_be_visible()
 
@@ -22,7 +22,9 @@ class homePage:
 
   def fillSearchBox(self):
     self.searchBarTxtBox.fill("iphone")
-    #expect(page).to_have_title("Amazon.in : iphone")
+
+  def clearSearchBox(self):
+    self.searchBarTxtBox.clear()
 
   def clickOnSearchBtn(self):
      self.searchBtn.click()

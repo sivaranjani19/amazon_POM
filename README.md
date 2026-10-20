@@ -21,9 +21,10 @@ Each page of the site under test has its own class encapsulating its locators an
 
 - **`LoginPage`** — email/password inputs, continue/submit buttons, and the error/new-account messages Amazon shows depending on what you enter. `enter_email()` and `enter_password()` take the value as a parameter, so the page object has no knowledge of *whose* credentials it's entering — that decision belongs to the test.
 - **`homePage`** — search bar, cart icon, logo, sign-in link, plus visibility assertions for each.
-- **`resultsPage`** — assertions on the search results page after a search is performed.
+- **`resultsPage`** — the search results list, including a locator for the first organic (non-sponsored) product link, built structurally (`div[data-component-type='s-search-result']`, filtered to the link containing a heading) rather than matched on product text, since the actual products returned change per search and over time.
+- **`productPage`** — a product's own detail page: the "Add to Shopping Cart" button and the header's live cart-count badge.
 
-Locators are built with Playwright's accessibility-first selectors (`get_by_role`, `get_by_text`) rather than brittle CSS selectors, matching current Playwright best practice.
+Locators are built with Playwright's accessibility-first selectors (`get_by_role`, `get_by_text`) rather than brittle CSS selectors, matching current Playwright best practice — with targeted exceptions where Amazon's markup makes that impractical (see Known Limitations).
 
 ### Fixtures (`conftest.py`)
 
@@ -34,9 +35,14 @@ Locators are built with Playwright's accessibility-first selectors (`get_by_role
 
 Real account credentials are never hardcoded. `AMAZON_EMAIL` and `AMAZON_PASSWORD` are read via `os.getenv()`, sourced from a local `.env` file (gitignored, never committed).
 
-### Skipping the live-login test in CI
+### Skipping unreliable-in-CI tests
 
-`test_positive_login` performs an actual login against production amazon.in. Running that automatically from CI runners would hit Amazon's bot detection (shared/rotating IPs are exactly what that looks for) and risks flagging or locking the real account behind it. It's marked with a custom `real_login` pytest marker (registered in `pytest.ini`) and excluded from CI runs via `pytest -m "not real_login"`. It still runs locally to demonstrate the full login flow.
+Two tests are excluded from CI via custom pytest markers (registered in `pytest.ini`), each for a different reason — both still run locally:
+
+- **`real_login`** (`test_positive_login`) — performs an actual login against production amazon.in. Running that from CI runners would hit Amazon's bot detection (shared/rotating IPs are exactly what that looks for) and risks flagging or locking the real account behind it.
+- **`flaky_live_site`** (`test_add_to_cart`) — see Known Limitations below.
+
+CI runs `pytest -m "not real_login and not flaky_live_site"`.
 
 ## Test Coverage
 
@@ -49,7 +55,11 @@ Real account credentials are never hardcoded. `AMAZON_EMAIL` and `AMAZON_PASSWOR
 - Visibility checks for the search bar, cart icon, and Amazon logo via `homePage`'s dedicated assertion methods.
 
 ### Search results (`tests/test_results.py`)
-- Full search flow — fill the search box, click search, assert the results page renders the expected content.
+- **`test_search_shows_results_for_query`** — searches, then asserts the results-count heading is showing (via a locator scoped to the correct heading level, to avoid matching Amazon's duplicate nav-ribbon text with the same words).
+- **`test_empty_search_stays_on_home`** — clicking search with nothing typed should never produce a results page; asserts both that the results heading never appears and that the URL stays on the home page.
+
+### Add to cart (`tests/test_products.py`)
+- **`test_add_to_cart`** (local-only — see Known Limitations) — searches, opens the first organic result (handling the new-tab popup every product link opens into), adds it to cart, and asserts the header's cart-count badge goes from `0` to `1` using an auto-retrying `expect(...).to_have_text(...)` assertion, since the badge updates asynchronously after the click.
 
 ## Running Locally
 
@@ -73,9 +83,9 @@ Run the tests:
 pytest -v
 ```
 
-Run only what's safe for CI (skips the live-login test):
+Run only what's safe for CI:
 ```bash
-pytest -m "not real_login" -v
+pytest -m "not real_login and not flaky_live_site" -v
 ```
 
 Generate an HTML report:
@@ -83,9 +93,17 @@ Generate an HTML report:
 pytest --html=report.html --self-contained-html
 ```
 
+## Known Limitations
+
+### `test_add_to_cart` depends on uncontrollable live product data
+
+Every product link on Amazon's results page opens in a new tab (`page.expect_popup()`), discovered by recording the real flow with Playwright's `codegen` tool rather than guessing at it. Beyond that, this test's reliability depends on *which specific product* the live "iphone" search happens to return as the first organic result: some products allow "Add to Shopping Cart" immediately, while others require selecting a variant (storage, color) first, which silently no-ops the click instead of adding the item. Since search results rotate and aren't something a test can control, this test sometimes fails for reasons unrelated to the code under test.
+
+Rather than building a generic handler for Amazon's many different variant-selection UIs — disproportionate effort for one portfolio test — this is marked `flaky_live_site` and excluded from CI, with the reason documented here and in the test file itself. It's left runnable locally as a demonstration of the full add-to-cart flow, including handling the new-tab navigation and the async cart-badge update (`expect(...).to_have_text(...)`, not a plain read-and-compare, since the badge updates after a delay following the click).
+
 ## CI/CD
 
-`.github/workflows/tests.yml` runs the suite (excluding `real_login`-marked tests):
+`.github/workflows/tests.yml` runs the suite (excluding `real_login`- and `flaky_live_site`-marked tests):
 - On every push to `main`
 - On a nightly schedule (3 AM UTC)
 
@@ -93,5 +111,5 @@ Each run installs dependencies, installs the Chromium browser, runs the tests he
 
 ## Possible Next Steps
 
-- Extend POM coverage to the cart and checkout flow
+- Detect when a product page requires a variant selection and handle it, to make `test_add_to_cart` reliable enough for CI
 - Add cross-browser runs (Firefox, WebKit) alongside the current Chromium-only CI run

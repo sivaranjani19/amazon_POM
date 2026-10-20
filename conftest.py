@@ -8,7 +8,7 @@ load_dotenv()
 @pytest.fixture
 def navigateToAmazon(page: Page):
   page.goto("https://www.amazon.in/")
-  #page.locator("#twotabsearchtextbox")
+  
 
 @pytest.fixture
 def credentials():

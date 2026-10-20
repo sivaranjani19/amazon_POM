@@ -25,7 +25,7 @@ jobs:
 
       - run: playwright install --with-deps chromium
 
-      - run: pytest -m "not real_login" --html=report.html --self-contained-html
+      - run: pytest -m "not real_login and not flaky_live_site" --html=report.html --self-contained-html
 
       - name: Prepare report for Pages
         if: always()
